@@ -72,6 +72,12 @@ for iteration in range(100):
     learning_rate *= 0.95
     pass
 
+# Check to see whether there are maps we have no data about. If so, rank them highly (so we get data).
+for mapname in maps.keys():
+    if mapname not in map_coefs:
+        print("// No data about map '%s', setting coef to max"%mapname)
+        map_coefs[mapname] = max(list(map_coefs.values())+[0])
+
 # Print out what we learned
 l = []
 for k,v in map_coefs.items():
