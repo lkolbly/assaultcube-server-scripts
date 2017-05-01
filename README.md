@@ -118,7 +118,9 @@ The algorithm is highly tuned for intense 3 person games and is also constantly 
 To run it:
 
 ```
-$ python3 gen-maprot.py
+$ python3 gen-maprot.py > maprot.cfg
 ```
+
+It prints out a valid map rotation file.
 
 This script requires a test.db file to run. If you don't have any DMO files to populate the database with using stats, that's fine, stats.py should create an empty database and gen-maprot.py should handle that just fine (whenever there are maps without any DMO files about them, it will prioritize them so it can gather data).
