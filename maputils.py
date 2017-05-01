@@ -43,10 +43,11 @@ maps = {
 }
 
 # Figure out the size of each map
-totsize = 0
+"""totsize = 0
 for mapname in maps.keys():
     mapfile = os.path.abspath("./packages/maps/official/%s.cgz"%mapname)
     size = len(gzip.GzipFile(mapfile).read())
     #maps[mapname]["size"] = os.path.getsize(mapfile)
     maps[mapname]["size"] = size
     totsize += maps[mapname]["size"]
+"""

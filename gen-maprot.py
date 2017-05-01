@@ -26,7 +26,6 @@ def modeIdToName(smode):
             return "team %s"%m[0]
     return None
 
-#TEAM_PROB = 0.25
 TEAM_PROB = 0.35
 
 # Compute statistics of previous games
@@ -37,40 +36,33 @@ sqlite_conn.commit()
 
 # Compute stats about the maps
 maps = maputils.maps
-totsize = sum(map(lambda m: m['size'], maps.values()))
 
 for mapname in maps.keys():
     cursor.execute("SELECT count(1) FROM gamestats WHERE mapname='%s'"%mapname)
     map_cnt = cursor.fetchone()[0]
     maps[mapname]['playcnt'] = map_cnt
 
-# Compute the number of times that each map has been played for each mode
-#cursor.execute("select mapname,smode,sum(numshots)/count(1),count(1),mapsize from games group by mapname,smode order by sum(numshots)")
-#rows = cursor.fetchall()
-#print(rows)
-
 # Assume that a high # of kills is desirable.
 # Assume # of kills is proportional to two things: The map and the game mode.
 # Also assume that the map and the game mode are independent.
 # Find map and game mode coefficients such that numshots = (map coef.) + (game mode coef.)
+
+# Find all of the map/mode combinations and average the kills for each combination
 map_coefs = {}
 mode_coefs = {}
 samples = []
 for row in cursor.execute("select mapname,smode,sum(nkills),count(1),sum(nkills)/count(1) from gamestats group by mapname,smode order by sum(numshots)/count(1)"):
-    #print(row)
     samples.append((row[0], row[1], row[4]))
     map_coefs[row[0]] = 0.0
     mode_coefs[row[1]] = 0.0
 
-def compute_estimate(mapname, mode):
-    return map_coefs[mapname] + mode_coefs[mode]
-
+# Do an iterative linear regression to find the coefficients
 learning_rate = 0.1
 for iteration in range(100):
     avg_diff = 0
     for i in range(len(samples)):
         sample = samples[i%len(samples)]
-        est = compute_estimate(sample[0], sample[1])
+        est = map_coefs[sample[0]] + mode_coefs[sample[1]]
         actual = sample[2]
         #print("//",est-actual)
         avg_diff += math.pow(est-actual,2.0)
@@ -80,9 +72,9 @@ for iteration in range(100):
     learning_rate *= 0.95
     pass
 
+# Print out what we learned
 l = []
 for k,v in map_coefs.items():
-    #print("//",k,v)
     l.append((v,k))
 l.sort()
 print("//")
@@ -91,27 +83,28 @@ print("//","\n//".join(["%s: %s"%(x[1], x[0]) for x in l]))
 l = []
 for k,v in mode_coefs.items():
     l.append((v,modeIdToName(k)))
-    #print("//",modeIdToName(k),v)
 l.sort()
 print("//")
 print("//"+"\n//".join(["%s: %s"%(x[1], x[0]) for x in l]))
 
-# Print out the maps in order of size
-print("//",totsize)
+# Weight each map (taking into account the fun coefficient and the play count
 tot_prob = 0.0
 for mapname in maps.keys():
-    #maps[mapname]["relprob"] = math.pow(totsize/float(maps[mapname]["size"]), 0.5) / (maps[mapname]['playcnt']+3)
     maps[mapname]["relprob"] = math.pow(2.0, map_coefs[mapname]/3.0) / (maps[mapname]['playcnt']+3)
     tot_prob += maps[mapname]["relprob"]
+
+# Convert the weight to a (percentage) probability (for easier reading)
 for mapname in maps.keys():
     maps[mapname]["relprob"] *= 100.0/tot_prob
 
+# Sort them and print the maps
 sm = sorted(maps.keys(), key=lambda a: -maps[a]["relprob"])
 for mapname in sm:
-    print("//", mapname, maps[mapname]['playcnt'], maps[mapname]["size"], maps[mapname]["relprob"])
+    print("//", mapname, maps[mapname]['playcnt'], maps[mapname]["relprob"])
 for mapname in sm:
-    print("//%s,%s,%s,%s,%s"%(mapname, maps[mapname]['playcnt'], maps[mapname]["size"], maps[mapname]["relprob"], map_coefs[mapname]))
+    print("//%s,%s,%s,%s"%(mapname, maps[mapname]['playcnt'], maps[mapname]["relprob"], map_coefs[mapname]))
 
+# Choose an element randomly from a list of weighted choices.
 # choices is a list of (weight, choice) tuples
 def weighted_sample(choices):
     tot_weight = sum(map(lambda choice: choice[0], choices))
@@ -126,26 +119,25 @@ def pick_round():
     global TEAM_PROB
 
     # Pick a map
-    #mapname = random.sample(maps.keys(), 1)[0]
     mapname = weighted_sample(list(map(lambda mapname: (maps[mapname]["relprob"], mapname), maps.keys())))
-    #mapname = "ac_douze"
 
     # After we play a map, reduce the probability that it's chosen
     maps[mapname]["relprob"] *= 0.25
 
-    # Pick an appropriate gamemode
+    # Pick an appropriate gamemode (not all maps support CTF)
     if not maps[mapname]["ctf"]:
         mode = weighted_sample(list(map(lambda mode: (mode[4], mode), filter(lambda mode: not mode[3], modes))))
     else:
         mode = weighted_sample(list(map(lambda mode: (mode[4], mode), modes)))
 
-    # Decrease the probability of this mode in the future
+    # Decrease the probability of choosing this mode in the future
     for i in range(len(modes)):
         if modes[i][0] == mode:
             modes[i] = (modes[i][0], modes[i][1], modes[i][2], modes[i][3], modes[i][4]*0.5)
             break
 
     # Pick whether it's a team game
+    # If it is a team game, reduce the chances of a team game in the future - otherwise increase the odds.
     if random.random() < TEAM_PROB:
         teams = True
         modeid = mode[2]
@@ -157,9 +149,16 @@ def pick_round():
         players = (0, 11)
         TEAM_PROB = 1.0 - (1.0 - TEAM_PROB) / 2
 
+    # Decide how long the game will be
     minutes = 8
+
+    # Send the output
     print("%s:%s:%s:%s:%s:%s:%s //%s mode, teams=%s"%(mapname, modeid, minutes, 1, players[0], players[1], 0, mode[0], teams))
     return mapname, mode, teams
+
+#
+# Generate a few rounds for the rotation
+#
 
 map_counts = {}
 mode_counts = {}
@@ -170,6 +169,8 @@ for i in range(20):
     map_counts[mapname] = map_counts.get(mapname, 0) + 1
     if teams:
         nteams += 1
+
+# Generate some diagnostic statistics about the rounds
 
 map_count_counts = [0, 0, 0, 0, 0]
 for i in range(len(map_count_counts)):

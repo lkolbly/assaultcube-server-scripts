@@ -219,7 +219,6 @@ class AssaultCubeDmoReader:
 
     def readheader(self, f):
         fmt = "16sii%ss%ssi"%(DHDR_DESCCHARS, DHDR_PLISTCHARS)
-        print(fmt)
         magicbytes, version, protocol, desc, plist, nextplayback = self.get(fmt, f)
         if magicbytes != "ASSAULTCUBE_DEMO":
             return False
@@ -227,11 +226,6 @@ class AssaultCubeDmoReader:
             return False
         if protocol != SERVER_PROTOCOL_VERSION:
             return False
-
-        print("Game description: %s"%desc)
-        print("Players: %s"%plist)
-        print("Next playback for packet: %s"%nextplayback)
-        #print binascii.hexlify(f.read(16))
         return True
 
     def get_flag_info(self, f):
@@ -265,7 +259,7 @@ class AssaultCubeDmoReader:
         flags_out = None
         if flags:
             flags_out = []
-            print("reading flags")
+            #print("reading flags")
             for i in [0,1]:
                 flags_out.append(self.get_flag_info(f))
         return sents, flags_out
@@ -277,7 +271,7 @@ class AssaultCubeDmoReader:
         #print ""%(magic, numcl)
         #if magic != SV_WELCOME:
         #    return False
-        print("num clients: %s"%numcl)
+        #print("num clients: %s"%numcl)
 
         r = {
             'type': 'welcome'
@@ -289,7 +283,7 @@ class AssaultCubeDmoReader:
             self.smode = r['smode']
             flags = self.smode in FLAG_GAMES
             #print mapname, smode, available, revision, flags
-            print(self.smode, flags)
+            #print(self.smode, flags)
 
             # Assuming there are no local clients
             if self.smode > 1 or (self.smode == 0 and numcl > 0):
@@ -299,8 +293,8 @@ class AssaultCubeDmoReader:
                 pass
             # Read out the sents list (the map items - pickups, perhaps?)
             sents = self.get_item_list(f, flags)
-            print(sents)
-            print(r)
+            #print(sents)
+            #print(r)
 
         # Read the stats for each player
         sv_resume = self.getint(f)
@@ -431,20 +425,16 @@ class AssaultCubeDmoReader:
         return None,None
 
     def handle_client(self, p, f):
-        #print "Got client packet"
         cn = self.getint(f)
         l = self.getuint(f)
         cnt = 0
         result = []
-        #print "bar"
         while True:
-            #print "foo"
             # If we can't read the type, we're done
             try:
                 ptype = self.getint(f)
             except:
                 break
-            #print ptype
 
             pname, pmeta = self._get_packet(ptype)
             if pname == None:
@@ -455,14 +445,11 @@ class AssaultCubeDmoReader:
                 #print "SV_CLIENT inside SV_CLIENT: Not supported!"
                 break
 
-            #print pname, pmeta['handler'] == self.noop_handler
             if pmeta['handler'] is not None and pmeta['handler'] != self.noop_handler:
                 r = pmeta['handler'](pname, f)
                 if r is not None:
                     if isinstance(r, dict):
-                        #print pname, r
                         r['client_id'] = cn
-                        #raise Exception('foo')
                         result.append(r)
                     else:
                         for r2 in r:
@@ -470,18 +457,18 @@ class AssaultCubeDmoReader:
                             result.append(r2)
             elif pmeta['handler'] == self.noop_handler:
                 # Silently stop reading
-                #print "No handler for %s in SV_CLIENT"%pname
                 break
             else:
                 print("Oh no! Don't have a handler for %s in SV_CLIENT"%pname)
                 break
             cnt += 1
-        #print "Exiting: %s elements"%len(result)
         if len(result) == 0:
-            #print "exiting, actually"
             return None
         return result
-        #print "Found %s messages in SV_CLIENT for %s"%(cnt, cn)
+
+    #
+    # Methods to handle the different packet types
+    #
 
     def handle_damage(self, p, f):
         return self.get_fmt(f, "iiiiii", 'target', 'shooter', 'gun', 'damage', 'armour', 'health', type='damage', killed=False, gib=(p=='SV_GIBDAMAGE'))
@@ -496,7 +483,6 @@ class AssaultCubeDmoReader:
             for i in range(count):
                 cn = self.getint(f)
                 score = self.getint(f)
-                #print "%s has score %s"%(cn,score)
                 r['points'][cn] = score
         else:
             nmedals = self.getint(f)
@@ -512,7 +498,6 @@ class AssaultCubeDmoReader:
 
     def handle_weapchange(self, p, f):
         newgun = self.getint(f)
-        #print "New gun is %s"%GUN_NAMES[newgun]
         return {
             'type': 'weapon_change',
             'newgun': newgun
@@ -571,14 +556,19 @@ class AssaultCubeDmoReader:
     def noop_handler(self, p, f):
         pass
 
+    #
+    # Orchestration code for reading packets and files
+    #
+
     def handlepacket(self, millis, chan, f):
         ptype = self.getint(f)
-        #print ptype
         result = []
         pname, pmeta = self._get_packet(ptype)
         if pmeta['handler'] is not None:
-            #print "Handling packet %s"%pname
-            r = pmeta['handler'](pname, f)
+            try:
+                r = pmeta['handler'](pname, f)
+            except:
+                return None
             if r is not None:
                 if pname == 'SV_CLIENT':
                     for r2 in r:
@@ -589,7 +579,8 @@ class AssaultCubeDmoReader:
                     r['gametime'] = millis[0]
                     result.append(r)
         else:
-            print("Unhandled %s"%pname)
+            r = {'type': pname, 'error': 'unhandled'}
+            result.append(r)
         return result
 
     def consumeFile(self, filename):
@@ -599,7 +590,7 @@ class AssaultCubeDmoReader:
 
         # Now loop, eating packets
         cnt = 0
-        next_millis = (0,)#self.get("i", f)
+        next_millis = (0,)
         while True:
             stamp, data = self.readdemo(f)
             #print(len(data))
@@ -612,11 +603,8 @@ class AssaultCubeDmoReader:
             try:
                 next_millis = self.get("i", f)
             except Exception as e:
-                print(e)
+                #print(e)
                 break
-
-        print("Got %s packets"%cnt)
-        print("Finished successfully")
         return result
 
 if __name__ == '__main__':
@@ -625,7 +613,8 @@ if __name__ == '__main__':
     if len(sys.argv) > 1:
         lr = acdr.consumeFile(sys.argv[1])
     else:
-        lr = acdr.consumeFile("demos/20161015_2314_local_ac_ingress_8min_KTF.dmo")
+        print("Error: You must pass a DMO filename")
+        sys.exit(1)
     for r in lr:
         print(r)
     pass

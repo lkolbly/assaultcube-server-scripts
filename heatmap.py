@@ -14,16 +14,6 @@ def heatmap(positions):
     yvals.sort()
     minimums = [xvals[5], yvals[5]]
     maximums = [xvals[-5], yvals[-5]]
-    """minimums = [positions[0][0], positions[0][1]]
-    maximums = [positions[0][0], positions[0][1]]
-    for p in positions:
-        maximums[0] = max(maximums[0], p[0])
-        maximums[1] = max(maximums[1], p[1])
-        minimums[0] = min(minimums[0], p[0])
-        minimums[1] = min(minimums[1], p[1])
-        pass"""
-
-    print(minimums, maximums)
 
     # Build the heatmap
     grid = []
@@ -53,7 +43,7 @@ def heatmap(positions):
             im.putpixel((x,y), int(pow(v, 0.25)*255))
             #d.ellipse([x-BRUSH_SIZE,y-BRUSH_SIZE, x+BRUSH_SIZE,y+BRUSH_SIZE], fill=(255,255,255,int(float(grid[x][y]) * 255 / most)))
             pass
-    print(len(positions))
+    #print(len(positions))
     return im
 
 class PlayerTracker:
@@ -75,17 +65,25 @@ class PlayerTracker:
 
 if __name__ == '__main__':
     import sys
-    if len(sys.argv) > 1:
+    if len(sys.argv) > 3:
         acdr = DmoParser.AssaultCubeDmoReader()
         lr = acdr.consumeFile(sys.argv[1])
         pt = PlayerTracker()
         positions = []
         for r in lr:
             pt.consume(r)
-            if r['type'] == 'position' and r['gametime'] < 480000:
-            #if r['type'] == 'damage' and r['gametime'] < 480000:
-                #positions.append((r['x'], r['y']))
-                positions.append(pt.getPlayerPos(r['cn']))
-        heatmap(positions).save("tmp.png")
+            if sys.argv[3] == 'position':
+                if r['type'] == 'position' and r['gametime'] < 480000:
+                    positions.append(pt.getPlayerPos(r['cn']))
+            elif sys.argv[3] == 'death':
+                if r['type'] == 'damage' and r['killed'] and r['gametime'] < 480000:
+                    #positions.append((r['x'], r['y']))
+                    positions.append(pt.getPlayerPos(r['target']))
+            else:
+                print("Unknown heatmap type '%s'"%sys.argv[3])
+            pass
+        heatmap(positions).save(sys.argv[2])
     else:
-        print("I need a file!")
+        print("I need a DMO file and a PNG file and a heatmap type!")
+        print("Usage: %s <DMO file> <output PNG file> <heatmap type>")
+        print("Heatmap type can be one of: position or death")

@@ -12,7 +12,6 @@ def processFile(filename):
         if r['type'] == 'welcome':
             #print r
             mapname = r['mapname']
-            r['mapsize'] = maputils.maps[mapname]['size']
             mode = r['smode']
             gamelimit = r['gamelimit']
             for cn, p in r['playernames'].items():
@@ -55,9 +54,11 @@ def processFile(filename):
             # Ignore
             pass
         else:
-            print(r)
+            #print(r)
+            pass
         pass
 
+    print(welcome['mapname'],welcome['smode'])
     for cn,p in players.items():
         print(p['name'], p['numshots'], p['nkills'], p['nreloads'], p['points'])
     welcome['game_length'] = time
@@ -71,6 +72,8 @@ def tolit(v):
 
 def dmoFileToSqlite(filename, gameid, cursor, game_fields, player_fields):
     try:
+        print()
+        print(filename)
         welcome, players = processFile(filename)
     except KeyboardInterrupt:
         return 1
@@ -89,25 +92,27 @@ def dmoFileToSqlite(filename, gameid, cursor, game_fields, player_fields):
             player.append(tolit(players[i][pf]))
         player = map(lambda p: str(p), player)
         q = "INSERT INTO games VALUES ('%s', %s, %s, %s)"%(gameid, ",".join(gfs), i, ",".join(player))
-        print(q)
+        #print(q)
         cursor.execute(q)
     return 0
 
-def loadDemosToSqlite(dbname=':memory:'):
+def loadDemosToSqlite(demo_directory='demos', dbname=':memory:'):
     conn = sqlite3.connect(dbname)
     c = conn.cursor()
     try:
-        c.execute('''CREATE TABLE games (gameid text, mapname text, mapsize int, smode int, gamelimit int, duration int, playerid int, playername text, nkills int, npickups int, numshots int, nreloads int)''')
+        c.execute('''CREATE TABLE games (gameid text, mapname text, smode int, gamelimit int, duration int, playerid int, playername text, nkills int, npickups int, numshots int, nreloads int)''')
     except:
         pass
 
     fails = []
     nfails = 0
     ndemos = 0
-    for fname in os.listdir('demos'):
+    for fname in os.listdir(demo_directory):
+        if not fname.endswith(".dmo"):
+            continue
         ndemos += 1
         c.execute('''DELETE FROM games WHERE gameid = "%s"'''%fname)
-        ret = dmoFileToSqlite('demos/%s'%fname, fname, c, ['mapname', 'mapsize', 'smode', 'gamelimit', 'game_length'], ['name', 'nkills', 'npickups', 'numshots', 'nreloads'])
+        ret = dmoFileToSqlite('%s/%s'%(demo_directory,fname), fname, c, ['mapname', 'smode', 'gamelimit', 'game_length'], ['name', 'nkills', 'npickups', 'numshots', 'nreloads'])
         if ret == 1:
             break
         elif ret == 2:
@@ -118,13 +123,17 @@ def loadDemosToSqlite(dbname=':memory:'):
         c.execute("drop table gamestats")
     except:
         pass
-    c.execute('''create table gamestats as select gameid,mapname,mapsize,smode,gamelimit,duration,sum(nkills)/count(1) as nkills,sum(numshots)/count(1) as numshots,count(1) as nplayers from games group by gameid;''')
+    c.execute('''create table gamestats as select gameid,mapname,smode,gamelimit,duration,sum(nkills)/count(1) as nkills,sum(numshots)/count(1) as numshots,count(1) as nplayers from games group by gameid;''')
     print("Failed %s times out of %s"%(nfails, ndemos))
     for f in fails:
         print(f)
     return conn
 
 if __name__ == '__main__':
-    conn = loadDemosToSqlite('test.db')
-    conn.commit()
-    conn.close()
+    import sys
+    if len(sys.argv) > 1:
+        conn = loadDemosToSqlite(sys.argv[1], 'test.db')
+        conn.commit()
+        conn.close()
+    else:
+        print("You must pass a directory full of demo files")
